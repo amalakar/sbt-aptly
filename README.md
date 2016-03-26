@@ -13,4 +13,5 @@ You need to add the following in your `build.sbt`. To upload to the aptly debian
     aptlyUrl := "http://aptly.example.net:8080/api"
     aptlyPrefix := "analytics_precise"
     aptlyDistribution := "precise"
-    aptlyDebianPackage := baseDirectory.value / s"target/${name.value}_${version.value}_all.deb"
+    aptlyDebianPackage := baseDirectory.value / s"target/${(name in Debian).value}_${version.value}_${(packageArchitecture in Debian).value}.deb"
+
