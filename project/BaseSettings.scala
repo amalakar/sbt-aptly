@@ -27,7 +27,5 @@ object BaseSettings {
       ),
       shellPrompt := { s => "[" + scala.Console.BLUE + Project.extract(s).currentProject.id + scala.Console.RESET + "] $ " }
     ) ++
-      Resolvers.defaultSettings ++
-      Publish.defaultSettings ++
-      Release.defaultSettings
+      Resolvers.defaultSettings
 }
