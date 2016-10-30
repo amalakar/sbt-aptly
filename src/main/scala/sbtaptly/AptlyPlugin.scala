@@ -5,8 +5,8 @@ import java.io.File
 import org.apache.http.HttpStatus
 import org.apache.http.client.config.RequestConfig
 import org.apache.http.client.methods.{CloseableHttpResponse, HttpPost, HttpPut}
-import org.apache.http.entity.{ContentType, StringEntity}
 import org.apache.http.entity.mime.MultipartEntityBuilder
+import org.apache.http.entity.{ContentType, StringEntity}
 import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
 import sbt.Keys._
@@ -20,24 +20,34 @@ object AptlyPlugin extends AutoPlugin {
     */
   object autoImport {
     lazy val aptlyUrl = SettingKey[String]("aptly-url", "Aptly server api http url")
-    lazy val aptlyPrefix = SettingKey[String]("aptly-prefix", "The name of the debian repo in the aptly server ")
+    lazy val aptlyPrefix = SettingKey[String]("aptly-prefix", "The publishing prefix in the aptly server ")
+    lazy val aptlyName = SettingKey[String]("aptly-name", "The name of the debian repo in the aptly server ")
     lazy val aptlyDistribution = SettingKey[String]("aptly-distribution", "The OS distribution name of the aptly repo")
+    lazy val aptlyPublishForceOverwrite = SettingKey[Boolean]("aptly-publish-force-overwrite", "Overwrite already existent artifact")
     lazy val aptlyDebianPackage = TaskKey[java.io.File]("aptly-debian-package", "The file for the debian package")
 
     lazy val aptlyPublish = TaskKey[Unit]("aptly-publish", "Publish debian package to aptly repo")
   }
 
   import autoImport._
+
   val httpClient = HttpClients.createDefault()
   var logger: Logger = _
 
   override lazy val projectSettings = Seq(
-    aptlyPublish := publishAptlyPackage(aptlyUrl.value, aptlyPrefix.value, aptlyDistribution.value,
-      aptlyDebianPackage.value, streams.value.log)
+    aptlyPublishForceOverwrite := true,
+    aptlyPublish := publishAptlyPackage(
+      aptlyUrl.value,
+      aptlyPrefix.value,
+      aptlyName.value,
+      aptlyDistribution.value,
+      aptlyDebianPackage.value,
+      aptlyPublishForceOverwrite.value,
+      streams.value.log)
   )
 
-  def publishAptlyPackage(aptlyUrl: String, aptlyPrefix: String,
-                          aptlyDistribution: String, debianPackageFile: File, logger: Logger): Unit = {
+  def publishAptlyPackage(aptlyUrl: String, aptlyPrefix: String, aptlyName: String,
+                          aptlyDistribution: String, debianPackageFile: File, forceOverwrite: Boolean, logger: Logger): Unit = {
     this.logger = logger
 
     logger.info(s"Url: $aptlyUrl aptlyPrefix: $aptlyPrefix, dist: $aptlyDistribution " +
@@ -45,8 +55,8 @@ object AptlyPlugin extends AutoPlugin {
     val uploadDir = "temp_upload_dir_" + java.util.UUID.randomUUID.toString
 
     uploadDebianFile(aptlyUrl, uploadDir, debianPackageFile) &&
-      moveToRepo(aptlyUrl, aptlyPrefix, uploadDir, debianPackageFile) &&
-      publishUpdate(aptlyUrl, aptlyPrefix, aptlyDistribution, debianPackageFile)
+      moveToRepo(aptlyUrl, aptlyName, uploadDir, debianPackageFile) &&
+      publishUpdate(aptlyUrl, aptlyPrefix, aptlyDistribution, debianPackageFile, forceOverwrite)
   }
 
   /**
@@ -90,10 +100,10 @@ object AptlyPlugin extends AutoPlugin {
     * http://www.aptly.info/doc/api/repos/
     * POST /api/repos/:name/file/:dir/:file
     */
-  def moveToRepo(baseUrl: String, repoPrefix: String, uploadDir: String, debianPackageFile: File): Boolean = {
+  def moveToRepo(baseUrl: String, aptlyName: String, uploadDir: String, debianPackageFile: File): Boolean = {
     val debianPackageFilePath = debianPackageFile.getAbsolutePath
     val debianPackageFileName = debianPackageFile.getName
-    val addToRepoUrl = s"$baseUrl/repos/$repoPrefix/file/$uploadDir/$debianPackageFileName"
+    val addToRepoUrl = s"$baseUrl/repos/$aptlyName/file/$uploadDir/$debianPackageFileName"
 
     logger.info(s"About to add to repo url: $addToRepoUrl")
     val request = new HttpPost(addToRepoUrl)
@@ -103,16 +113,16 @@ object AptlyPlugin extends AutoPlugin {
       response = httpClient.execute(request)
       response.getStatusLine.getStatusCode match {
         case HttpStatus.SC_OK =>
-          logger.info(s"Successfully added $debianPackageFilePath to aptly repo: $repoPrefix")
+          logger.info(s"Successfully added $debianPackageFilePath to aptly repo: $aptlyName")
           true
         case code =>
-          logger.error(s"Error adding $debianPackageFilePath to aptly repo: $repoPrefix. Url: $addToRepoUrl " +
+          logger.error(s"Error adding $debianPackageFilePath to aptly repo: $aptlyName. Url: $addToRepoUrl " +
             s" [${EntityUtils.toString(response.getEntity)}]. Code: $code")
           false
       }
     } catch {
       case e: Throwable =>
-        logger.error(s"Error adding $debianPackageFilePath to repo: $repoPrefix ${e.getMessage}")
+        logger.error(s"Error adding $debianPackageFilePath to repo: $aptlyName ${e.getMessage}")
         false
     } finally {
       response.close()
@@ -128,15 +138,15 @@ object AptlyPlugin extends AutoPlugin {
     * This assumes that the repo has been published earlier and is not a new one
     */
   def publishUpdate(baseUrl: String, repoPrefix: String, distribution: String,
-                    debianPackageFile: File): Boolean = {
+                    debianPackageFile: File, forceOverwrite: Boolean): Boolean = {
     val debianPackageFilePath = debianPackageFile.getAbsolutePath
     val publishUrl = s"$baseUrl/publish/$repoPrefix/$distribution"
-    logger.info(s"About to publish to url: $publishUrl")
+    logger.info(s"About to publish to url with forceOverwrite '$forceOverwrite': $publishUrl")
 
     val request = new HttpPut(publishUrl)
     val requestConfig = RequestConfig.custom().
       setConnectionRequestTimeout(10000).setExpectContinueEnabled(true).build()
-    request.setEntity(new StringEntity("""{"ForceOverwrite": true}""", ContentType.APPLICATION_JSON))
+    request.setEntity(new StringEntity(s"""{"ForceOverwrite": $forceOverwrite}""", ContentType.APPLICATION_JSON))
     request.setConfig(requestConfig)
 
     var response: CloseableHttpResponse = null
@@ -145,7 +155,7 @@ object AptlyPlugin extends AutoPlugin {
       response = httpClient.execute(request)
       response.getStatusLine.getStatusCode match {
         case HttpStatus.SC_OK =>
-          logger.info(s"Successfully published $debianPackageFilePath to aptly repo: $repoPrefix")
+          logger.info(s"Successfully published $debianPackageFilePath to aptly repo: /$repoPrefix/$distribution")
           true
         case code =>
           logger.error(s"Error publishing $debianPackageFilePath to aptly repo: $repoPrefix. Url: $publishUrl" +
