@@ -5,7 +5,7 @@ import xerial.sbt.Sonatype.SonatypeKeys._
 object Publish {
 
   lazy val defaultSettings = Seq(
-    profileName := "lachatak",
+    sonatypeProfileName := "lachatak",
     homepage := Some(url("https://github.com/lachatak/sbt-aptly")),
     publishMavenStyle := true,
     publishArtifact in Test := false,

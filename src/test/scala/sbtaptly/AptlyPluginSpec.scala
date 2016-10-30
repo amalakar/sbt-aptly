@@ -1,8 +1,9 @@
 package sbtaptly
 
-import org.scalatest.{BeforeAndAfter, FunSpec, Matchers}
+import org.scalatest.{BeforeAndAfter, FunSpec, Ignore, Matchers}
 import sbt.{Level, Logger}
 
+@Ignore
 class AptlyPluginSpec extends FunSpec with Matchers with BeforeAndAfter {
   describe("AptlyPlugin") {
 

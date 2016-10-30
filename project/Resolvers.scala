@@ -9,7 +9,8 @@ object Resolvers {
       Resolver.mavenLocal,
       Resolver.typesafeRepo("snapshots"),
       Resolver.sonatypeRepo("snapshots"),
-      Resolver.sonatypeRepo("releases")
+      Resolver.sonatypeRepo("releases"),
+      "maven" at "https://repo1.maven.org/maven2/"
     )
   )
 }
